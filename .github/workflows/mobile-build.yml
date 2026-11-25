@@ -24,12 +24,13 @@ permissions:
 concurrency:
   # 与 dingtalk-summary.yml 共用同一 group：两个 workflow 都会跑 build_site.py，
   # 必须互斥排队，否则并发写会让 history.json 的 ts 与 data/hist 分片文件名错位。
-  # cancel-in-progress 必须为 true：曾出现过一轮运行卡成僵尸（远超 timeout
-  # 仍未结束），group 排死导致后续所有 schedule 运行永远排队，线上数据停更
-  # 十几个小时。改为新运行直接取消卡住的旧运行；被取消方的产物只在工作区，
-  # 未走到 commit 步骤就不会影响仓库数据。
+  # cancel-in-progress 改为 false：新运行排队等旧运行跑完，不再把正在正常
+  # 抓取/推送的旧运行掐掉（此前两个任务同时触发时后启动的会取消先启动的，
+  # 导致整轮白跑、数据不更新）。
+  # 卡死兜底由各 job 的 timeout-minutes 负责（最长 110 分钟 < 2 小时节拍），
+  # 平台会自动终止超时运行，不会永久堵住队列。
   group: tariff-build
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
