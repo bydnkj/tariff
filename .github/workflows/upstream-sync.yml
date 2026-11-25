@@ -70,7 +70,6 @@ jobs:
             "push-center.html"
             "requirements.txt"
             "version.json"
-            "tariff-fetch-source.zip"
             "unicom/index.html"
             "unicom/unicom_logo.webp"
             "unicom/version.json"
