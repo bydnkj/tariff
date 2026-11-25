@@ -81,9 +81,14 @@ jobs:
             "gb/version.json"
           )
 
-          # 排除本工作流自身（上游没有它）和由抓取任务生成的快照。
+          # 排除项：
+          #   - 本工作流自身（上游没有它）
+          #   - 抓取任务生成的快照
+          #   - fork 自主维护的工作流并发配置（mobile-build / dingtalk-summary），
+          #     它们的 cancel-in-progress 已改为 false 以避免互相取消；
+          #     若同步上游版本会被改回 true，故必须从同步中排除。
           CHANGED=$(git diff --name-only HEAD FETCH_HEAD -- "${SYNC_PATHS[@]}" \
-            | grep -vE '^pipelines/mobile/snapshots/|^.github/workflows/upstream-sync.yml$' || true)
+            | grep -vE '^pipelines/mobile/snapshots/|^.github/workflows/upstream-sync.yml$|^.github/workflows/mobile-build.yml$|^.github/workflows/dingtalk-summary.yml$' || true)
 
           if [ -z "${CHANGED}" ]; then
             echo "No source changes from upstream."
