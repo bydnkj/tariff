@@ -1,0 +1,138 @@
+name: Upstream Sync
+
+# 近实时同步：每 10 分钟轮询上游；也可在 Actions 页面手动触发。
+# 只同步源码/UI/工作流，不覆盖 data/、snapshots/、各站点 data/ 等运行产物。
+# 注意：fork 中新加的工作流默认是 disabled_fork，上传后需在 Actions 页面点 Enable workflow。
+# 同步会覆盖 .github/workflows/** 的本地改动；若要自己改抓取频率，请移出 SYNC_PATHS。
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          # 若希望本次同步触发 fork 内的 zip-sync 等工作流，可配置 PAT 为 SYNC_TOKEN；
+          # 不配置时使用 GITHUB_TOKEN，同步提交不会触发其他 workflow。
+          token: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Sync source files from upstream
+        env:
+          UPSTREAM_REPO: https://github.com/rdtscx/tariff.git
+        run: |
+          set -euo pipefail
+          git config user.name "tariff-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream "$UPSTREAM_REPO"
+          git fetch --depth=1 upstream main
+          UPSTREAM_SHA=$(git rev-parse FETCH_HEAD)
+          echo "upstream main = ${UPSTREAM_SHA}"
+
+          # 只同步这些源码/UI 路径；如需保留自己的界面改动，把对应路径删掉即可。
+          SYNC_PATHS=(
+            ".github/workflows"
+            "scripts"
+            "pipelines/gb_pipeline.py"
+            "pipelines/pipeline_common.py"
+            "pipelines/telecom_pipeline.py"
+            "pipelines/unicom_pipeline.py"
+            "pipelines/mobile"
+            "pipelines/scripts"
+            "icons"
+            "tests"
+            "tools"
+            ".env.example"
+            ".gitignore"
+            ".nojekyll"
+            "DINGTALK_SETUP.md"
+            "NOTIFY_SETUP.md"
+            "README.md"
+            "_headers"
+            "backfill_history.py"
+            "index.html"
+            "logo.png"
+            "manifest.json"
+            "nav.html"
+            "push-center.html"
+            "requirements.txt"
+            "version.json"
+            "tariff-fetch-source.zip"
+            "unicom/index.html"
+            "unicom/unicom_logo.webp"
+            "unicom/version.json"
+            "telecom/index.html"
+            "telecom/telecom_logo.webp"
+            "telecom/version.json"
+            "gb/index.html"
+            "gb/gb_logo.webp"
+            "gb/version.json"
+          )
+
+          # 排除本工作流自身（上游没有它）和由抓取任务生成的快照。
+          CHANGED=$(git diff --name-only HEAD FETCH_HEAD -- "${SYNC_PATHS[@]}" \
+            | grep -vE '^pipelines/mobile/snapshots/|^.github/workflows/upstream-sync.yml$' || true)
+
+          if [ -z "${CHANGED}" ]; then
+            echo "No source changes from upstream."
+            exit 0
+          fi
+
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            if git cat-file -e "FETCH_HEAD:${path}" 2>/dev/null; then
+              git checkout FETCH_HEAD -- "$path"
+            else
+              git rm -q --ignore-unmatch -- "$path"
+            fi
+          done <<< "${CHANGED}"
+
+          git add -A -- "${SYNC_PATHS[@]}"
+
+          # 兜底：绝不暂存任何数据产物。
+          BAD=$(git diff --cached --name-only \
+            | grep -E '(^data/|^pipelines/mobile/snapshots/|^unicom/data/|^telecom/data/|^gb/data/)' || true)
+          if [ -n "${BAD}" ]; then
+            echo "::error::Refusing to stage data files:"
+            echo "${BAD}"
+            exit 1
+          fi
+
+          if git diff --cached --quiet; then
+            echo "No effective changes."
+            exit 0
+          fi
+
+          git commit -q -m "chore: sync source from rdtscx/tariff@${UPSTREAM_SHA:0:7}"
+
+          # fork 自己的抓取任务可能同时推送数据提交，失败时重新对齐后重试。
+          PUSHED=0
+          for i in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              PUSHED=1
+              break
+            fi
+            echo "[warn] push failed, rebase and retry ($i/5)"
+            git fetch --depth=1 origin main
+            if ! git rebase origin/main; then
+              git rebase --abort || true
+              echo "::error::Rebase conflict, please resolve manually."
+              exit 1
+            fi
+          done
+          [ "${PUSHED}" -eq 1 ] || { echo "::error::push failed after 5 retries"; exit 1; }
+
+          echo "Synced upstream ${UPSTREAM_SHA:0:7}" >> "$GITHUB_STEP_SUMMARY"
