@@ -1,12 +1,12 @@
 {
-  "updated": "2026-11-25 14:19:59",
+  "updated": "2026-11-25 17:47:28",
   "default": "beijing",
   "sections": [
     {
       "section": "quanguo",
       "name": "全网(全国)",
       "total": 2861,
-      "updated": "2026-11-25 14:05:13"
+      "updated": "2026-11-25 17:43:39"
     },
     {
       "section": "anhui",
@@ -42,7 +42,7 @@
       "section": "guangdong",
       "name": "广东",
       "total": 3494,
-      "updated": "2026-11-25 13:21:28"
+      "updated": "2026-11-25 17:46:54"
     },
     {
       "section": "guangxi",
@@ -90,7 +90,7 @@
       "section": "hunan",
       "name": "湖南",
       "total": 1582,
-      "updated": "2026-11-25 13:20:45"
+      "updated": "2026-11-25 17:44:57"
     },
     {
       "section": "jiangsu",
@@ -192,7 +192,7 @@
       "section": "zhejiang",
       "name": "浙江",
       "total": 1327,
-      "updated": "2026-11-25 14:11:20"
+      "updated": "2026-11-25 17:47:28"
     }
   ],
   "quanguo_total": 2861,
