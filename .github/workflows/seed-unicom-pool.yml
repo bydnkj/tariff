@@ -1,0 +1,73 @@
+name: Seed Unicom Pool Cache
+
+# 一次性冷启动修复：fork 不继承上游的 Actions 缓存，联通累积池 _pool.json 为空，
+# 每轮只能采到残缺子集，触发缩水闸门后任务失败、又不会保存缓存 → 死循环。
+# 本工作流用仓库里已有的 unicom/data/*.json（完整展示数据）重建累积池，
+# 写入 Actions 缓存；unicom-build.yml 的 restore-keys: unicom-poolgz- 即可命中。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 用现有展示数据重建累积池
+        run: |
+          set -e
+          mkdir -p unicom
+          python3 - <<'PYCODE'
+          import json, sys, gzip, os
+          sys.path.insert(0, "pipelines")
+          from pipeline_common import stable_business_key
+
+          datadir = "unicom/data"
+          pool = {}
+          total = 0
+          for fn in sorted(os.listdir(datadir)):
+              if not fn.endswith(".json"):
+                  continue
+              scope = fn[:-5]
+              if scope in ("latest", "history", "announce"):
+                  continue
+              with open(os.path.join(datadir, fn), encoding="utf-8") as f:
+                  items = (json.load(f) or {}).get("items") or []
+              recs = {}
+              for it in items:
+                  recs[stable_business_key(it)] = {"item": it, "miss": 0}
+              pool[scope] = recs
+              total += len(recs)
+              print("seed %s: %d 条" % (scope, len(recs)))
+          with gzip.open("unicom/_pool.json.gz", "wb", compresslevel=9) as f:
+              f.write(json.dumps({"pool": pool, "meta": {}}, ensure_ascii=False,
+                                 separators=(",", ":")).encode("utf-8"))
+          print("总计 %d 板块 / %d 条" % (len(pool), total))
+          PYCODE
+          ls -lh unicom/_pool.json.gz
+
+      - name: 写入 Actions 缓存
+        uses: actions/cache/save@v4
+        with:
+          path: unicom/_pool.json.gz
+          key: unicom-poolgz-seed-${{ github.run_id }}
+
+      - name: 验证缓存可被 restore-keys 命中
+        uses: actions/cache/restore@v4
+        with:
+          path: unicom/_pool.json.gz
+          key: unicom-poolgz-verify
+          restore-keys: |
+            unicom-poolgz-
+
+      - name: 校验还原结果
+        run: |
+          set -e
+          test -s unicom/_pool.json.gz
+          echo "缓存还原成功：$(ls -lh unicom/_pool.json.gz)"
+          python3 -c "import gzip,json; d=json.load(gzip.open('unicom/_pool.json.gz','rt',encoding='utf-8')); print('板块数',len(d['pool']),'条目数',sum(len(v) for v in d['pool'].values()))"
