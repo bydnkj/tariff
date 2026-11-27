@@ -159,8 +159,11 @@ jobs:
             ATTEMPTED=1
             ACTIVE=$(count_active)
             M2C=$(minutes_to_cron)
-            if [ "$ACTIVE" = "0" ] && [ "$M2C" -le 30 ]; then
-              # 让位于即将到来的整点定时轮，避免两轮互踩被取消
+            # fork 仓库的 schedule 不会投递，不能再把刷新让给"即将到来的整点轮"：
+            # 否则每轮都 sleep 600 等一个永远不会来的 schedule，数据会一直停更。
+            IS_FORK="${{ github.event.repository.fork }}"
+            if [ "$IS_FORK" != "true" ] && [ "$ACTIVE" = "0" ] && [ "$M2C" -le 30 ]; then
+              # 非 fork 才让位于即将到来的整点定时轮，避免两轮互踩被取消
               echo "距整点定时轮只剩 ${M2C} 分钟，本轮不派发，交给 schedule"
               sleep 600
               continue
